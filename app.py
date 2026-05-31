@@ -3,7 +3,6 @@ import pandas as pd
 from modules.qpcr import run_pipeline
 from modules.lmm import run_lmm, summarize_lmm
 from modules.plots import plot_fold_changes, plot_litter_variance
-from PIL import Image
 
 # ── PAGE CONFIG ──
 st.set_page_config(
@@ -71,14 +70,20 @@ else:
     all_cols = df.columns.tolist()
 
     with col1:
-        treatment_col = st.selectbox("Treatment column", all_cols,
-                                     index=all_cols.index('treatment') if 'treatment' in all_cols else 0)
+        treatment_col = st.selectbox(
+            "Treatment column",
+            all_cols,
+            index=all_cols.index('treatment') if 'treatment' in all_cols else 0
+        )
         control_group = st.selectbox(
             "Control group", df[treatment_col].unique().tolist())
 
     with col2:
-        housekeeping_col = st.selectbox("Housekeeping gene column", all_cols,
-                                        index=all_cols.index('gapdh_ct') if 'gapdh_ct' in all_cols else 0)
+        housekeeping_col = st.selectbox(
+            "Housekeeping gene column",
+            all_cols,
+            index=all_cols.index('gapdh_ct') if 'gapdh_ct' in all_cols else 0
+        )
         gene_options = [c for c in all_cols if c.endswith(
             '_ct') and c != housekeeping_col]
         gene_cols = st.multiselect(
@@ -86,8 +91,10 @@ else:
 
     with col3:
         if "In vivo" in experiment_type:
-            litter_col = st.selectbox("Grouping variable column",
-                                      [c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()])
+            litter_col_options = [
+                c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()]
+            litter_col = st.selectbox(
+                "Grouping variable column", litter_col_options)
 
     st.divider()
 
@@ -108,22 +115,43 @@ else:
                     gene_display = gene.replace('_ct', '').upper()
                     st.markdown(f"### {gene_display}")
 
-                    tab1, tab2 = st.tabs(["Fold Change Plot", "LMM Results (in vivo)"]
-                                         if "In vivo" in experiment_type
-                                         else ["Fold Change Plot", "Summary Table"])
+                    # Run LMM first if in vivo so we have p-values for the plot
+                    lmm_pvalues = None
+                    lmm_result = None
+                    pct_litter = None
+                    pct_residual = None
+                    summary = None
+
+                    if "In vivo" in experiment_type:
+                        lmm_result = run_lmm(
+                            results, gene, treatment_col, litter_col, control_group)
+                        summary, pct_litter, pct_residual = summarize_lmm(
+                            lmm_result, gene)
+
+                        # Extract LMM p-values for each treatment group
+                        lmm_pvalues = {}
+                        for idx in summary.index:
+                            for group in df[treatment_col].unique():
+                                if group != control_group and group in str(idx):
+                                    lmm_pvalues[group] = summary.loc[idx,
+                                                                     'p-value']
+
+                    # Generate fold change plot with correct p-values
+                    plot_path = plot_fold_changes(
+                        results, gene, treatment_col, lmm_pvalues=lmm_pvalues
+                    )
+
+                    tab_labels = ["Fold Change Plot", "LMM Results (in vivo)"] \
+                        if "In vivo" in experiment_type \
+                        else ["Fold Change Plot", "Summary Table"]
+
+                    tab1, tab2 = st.tabs(tab_labels)
 
                     with tab1:
-                        plot_path = plot_fold_changes(
-                            results, gene, treatment_col)
                         st.image(plot_path, use_container_width=False)
 
                     with tab2:
                         if "In vivo" in experiment_type:
-                            lmm_result = run_lmm(
-                                results, gene, treatment_col, litter_col, control_group)
-                            summary, pct_litter, pct_residual = summarize_lmm(
-                                lmm_result, gene)
-
                             col_a, col_b = st.columns(2)
                             with col_a:
                                 st.markdown("**Fixed Effects (Treatment)**")
@@ -136,10 +164,21 @@ else:
                         else:
                             fold_col = f'fold_change_{gene}'
                             summary_table = results.groupby(treatment_col)[fold_col].agg(
-                                ['mean', 'sem', 'count']).reset_index()
+                                ['mean', 'sem', 'count']
+                            ).reset_index()
                             summary_table.columns = [
                                 'Treatment', 'Mean Fold Change', 'SEM', 'N']
                             summary_table = summary_table.round(4)
+
+                            # CSV download
+                            csv = summary_table.to_csv(
+                                index=False).encode('utf-8')
+                            st.download_button(
+                                label="⬇️ Download results as CSV",
+                                data=csv,
+                                file_name=f'{gene_display}_results.csv',
+                                mime='text/csv'
+                            )
                             st.dataframe(
                                 summary_table, use_container_width=True)
 
