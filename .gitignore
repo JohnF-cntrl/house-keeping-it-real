@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.pyenv/
+*.egg-info/
+.env
+
+# Outputs
+outputs/
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
