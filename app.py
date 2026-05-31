@@ -29,7 +29,8 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**Upload your data**")
-    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV, Excel, or TXT file", type=[
+                                     "csv", "xlsx", "xls", "txt"])
 
 # ── MAIN AREA ──
 if uploaded_file is None:
@@ -55,7 +56,12 @@ if uploaded_file is None:
 
 else:
     # Load data
-    df = pd.read_csv(uploaded_file)
+    if uploaded_file.name.endswith('.csv'):
+        df = pd.read_csv(uploaded_file)
+    elif uploaded_file.name.endswith('.txt'):
+        df = pd.read_csv(uploaded_file, sep='\t')
+    else:
+        df = pd.read_excel(uploaded_file)
     st.success(f"✅ Loaded {len(df)} samples successfully!")
 
     with st.expander("Preview raw data"):
