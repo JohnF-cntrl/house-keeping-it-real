@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 from modules.qpcr import run_pipeline
 from modules.lmm import run_lmm, summarize_lmm
 from modules.plots import plot_fold_changes, plot_litter_variance
@@ -13,7 +15,7 @@ st.set_page_config(
 
 # ── HEADER ──
 st.title("🧬 house-keeping-it-real")
-st.markdown("*A qRT-PCR analysis tool for the St.A.B lab — and beyond.*")
+st.markdown("*A qRT-PCR analysis tool built for any lab, any experiment.*")
 st.divider()
 
 # ── SIDEBAR ──
@@ -28,166 +30,318 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("**Upload your data**")
-    uploaded_file = st.file_uploader("Upload CSV, Excel, or TXT file", type=[
-                                     "csv", "xlsx", "xls", "txt"])
 
-# ── MAIN AREA ──
-if uploaded_file is None:
-    st.info("👈 Upload your CSV file in the sidebar to get started.")
+    input_method = st.radio(
+        "How would you like to enter your data?",
+        ["✏️ Enter values manually", "📂 Upload a file"],
+        help="Manual entry lets you type values directly. Upload supports CSV, Excel, and TXT files."
+    )
 
-    st.markdown("### Expected CSV format")
-    st.markdown("Your CSV should have the following columns:")
-    example = pd.DataFrame({
-        'sample_id':  ['S01', 'S02', 'S03'],
-        'mouse_id':   ['M01', 'M02', 'M03'],
-        'litter_id':  ['L1', 'L1', 'L2'],
-        'treatment':  ['BPA', 'Vehicle', 'E2'],
-        'gene1_ct':   [28.3, 31.2, 27.1],
-        'gapdh_ct':   [20.2, 20.1, 20.2],
-    })
-    st.dataframe(example, use_container_width=True)
-    st.markdown("""
-    - **sample_id** — unique identifier for each sample
-    - **litter_id** — litter or grouping ID *(required for in vivo mode)*
-    - **treatment** — treatment group name (e.g. BPA, E2, Vehicle)
-    - **gene_ct columns** — one column per gene including your housekeeping gene
-    """)
 
-else:
-    # Load data
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    elif uploaded_file.name.endswith('.txt'):
-        df = pd.read_csv(uploaded_file, sep='\t')
-    else:
-        df = pd.read_excel(uploaded_file)
-    st.success(f"✅ Loaded {len(df)} samples successfully!")
+# ── HELPER: Summary Table ──
+def render_summary_table(results, treatment_col, gene, gene_display):
+    fold_col = f'fold_change_{gene}'
+    summary_table = results.groupby(treatment_col)[fold_col].agg(
+        ['mean', 'sem', 'count']
+    ).reset_index()
+    summary_table.columns = ['Treatment', 'Mean Fold Change', 'SEM', 'N']
+    summary_table = summary_table.round(4)
+    summary_table['SEM'] = summary_table['SEM'].fillna('N/A')
 
-    with st.expander("Preview raw data"):
-        st.dataframe(df, use_container_width=True)
+    st.dataframe(summary_table, use_container_width=False, hide_index=True)
 
-    st.divider()
+    csv = summary_table.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="⬇️ Download results as CSV",
+        data=csv,
+        file_name=f'{gene_display}_results.csv',
+        mime='text/csv'
+    )
 
-    # ── COLUMN SELECTION ──
-    st.subheader("🔧 Configure Analysis")
-    col1, col2, col3 = st.columns(3)
 
-    all_cols = df.columns.tolist()
+# ── HELPER: Run Analysis ──
+def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, litter_col=None):
+    # Ensure all Ct columns are numeric
+    ct_cols = gene_cols + [housekeeping_col]
+    for col in ct_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    with col1:
-        treatment_col = st.selectbox(
-            "Treatment column",
-            all_cols,
-            index=all_cols.index('treatment') if 'treatment' in all_cols else 0
+    results = run_pipeline(df, gene_cols, housekeeping_col,
+                           treatment_col, control_group)
+
+    st.subheader("📊 Results")
+
+    for gene in gene_cols:
+        gene_display = gene.replace('_ct', '').upper()
+        st.markdown(f"### {gene_display}")
+
+        lmm_pvalues = None
+        pct_litter = None
+        pct_residual = None
+        summary = None
+
+        if "In vivo" in experiment_type and litter_col:
+            try:
+                lmm_result = run_lmm(
+                    results, gene, treatment_col, litter_col, control_group)
+                summary, pct_litter, pct_residual = summarize_lmm(
+                    lmm_result, gene)
+
+                lmm_pvalues = {}
+                for idx in summary.index:
+                    for group in df[treatment_col].unique():
+                        if group != control_group and group in str(idx):
+                            lmm_pvalues[group] = summary.loc[idx, 'p-value']
+            except Exception as e:
+                st.warning(
+                    f"LMM could not be fitted for {gene_display}: {str(e)}")
+
+        plot_fig = plot_fold_changes(
+            results, gene, treatment_col, lmm_pvalues=lmm_pvalues
         )
-        control_group = st.selectbox(
-            "Control group", df[treatment_col].unique().tolist())
 
-    with col2:
-        housekeeping_col = st.selectbox(
-            "Housekeeping gene column",
-            all_cols,
-            index=all_cols.index('gapdh_ct') if 'gapdh_ct' in all_cols else 0
-        )
-        gene_options = [c for c in all_cols if c.endswith(
-            '_ct') and c != housekeeping_col]
-        gene_cols = st.multiselect(
-            "Genes of interest", gene_options, default=gene_options)
+        tab_labels = ["Fold Change Plot", "LMM Results (in vivo)"] \
+            if "In vivo" in experiment_type \
+            else ["Fold Change Plot", "Summary Table"]
 
-    with col3:
-        if "In vivo" in experiment_type:
-            litter_col_options = [
-                c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()]
-            litter_col = st.selectbox(
-                "Grouping variable column", litter_col_options)
+        tab1, tab2 = st.tabs(tab_labels)
 
-    st.divider()
+        with tab1:
+            st.plotly_chart(plot_fig, use_container_width=False,
+                            key=f"plot_{gene}")
 
-    # ── RUN ANALYSIS ──
-    if st.button("▶️ Run Analysis", type="primary"):
-        if not gene_cols:
-            st.error("Please select at least one gene of interest.")
-        else:
-            with st.spinner("Running analysis..."):
+        with tab2:
+            if "In vivo" in experiment_type:
+                if summary is not None:
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown("**Fixed Effects (Treatment)**")
+                        st.dataframe(summary, use_container_width=True)
+                    with col_b:
 
-                # Run qPCR pipeline
-                results = run_pipeline(
-                    df, gene_cols, housekeeping_col, treatment_col, control_group)
+                        variance_ok = (
+                            pct_litter is not None and
+                            pct_residual is not None and
+                            not (isinstance(pct_litter, float) and np.isnan(pct_litter)) and
+                            not (isinstance(pct_residual, float)
+                                 and np.isnan(pct_residual))
+                        )
 
-                st.subheader("📊 Results")
-
-                for gene in gene_cols:
-                    gene_display = gene.replace('_ct', '').upper()
-                    st.markdown(f"### {gene_display}")
-
-                    # Run LMM first if in vivo so we have p-values for the plot
-                    lmm_pvalues = None
-                    lmm_result = None
-                    pct_litter = None
-                    pct_residual = None
-                    summary = None
-
-                    if "In vivo" in experiment_type:
-                        lmm_result = run_lmm(
-                            results, gene, treatment_col, litter_col, control_group)
-                        summary, pct_litter, pct_residual = summarize_lmm(
-                            lmm_result, gene)
-
-                        # Extract LMM p-values for each treatment group
-                        lmm_pvalues = {}
-                        for idx in summary.index:
-                            for group in df[treatment_col].unique():
-                                if group != control_group and group in str(idx):
-                                    lmm_pvalues[group] = summary.loc[idx,
-                                                                     'p-value']
-
-                    # Generate fold change plot with correct p-values
-                    plot_path = plot_fold_changes(
-                        results, gene, treatment_col, lmm_pvalues=lmm_pvalues
-                    )
-
-                    tab_labels = ["Fold Change Plot", "LMM Results (in vivo)"] \
-                        if "In vivo" in experiment_type \
-                        else ["Fold Change Plot", "Summary Table"]
-
-                    tab1, tab2 = st.tabs(tab_labels)
-
-                    with tab1:
-                        st.image(plot_path, use_container_width=False)
-
-                    with tab2:
-                        if "In vivo" in experiment_type:
-                            col_a, col_b = st.columns(2)
-                            with col_a:
-                                st.markdown("**Fixed Effects (Treatment)**")
-                                st.dataframe(summary, use_container_width=True)
-                            with col_b:
-                                variance_path = plot_litter_variance(
-                                    pct_litter, pct_residual, gene)
-                                st.image(variance_path,
-                                         use_container_width=False)
+                        if variance_ok:
+                            variance_fig = plot_litter_variance(
+                                pct_litter, pct_residual, gene)
+                            st.plotly_chart(
+                                variance_fig, use_container_width=False, key=f"variance_{gene}")
                         else:
-                            fold_col = f'fold_change_{gene}'
-                            summary_table = results.groupby(treatment_col)[fold_col].agg(
-                                ['mean', 'sem', 'count']
-                            ).reset_index()
-                            summary_table.columns = [
-                                'Treatment', 'Mean Fold Change', 'SEM', 'N']
-                            summary_table = summary_table.round(4)
+                            st.info(
+                                "Not enough data to estimate litter variance. Add more litters.")
+                else:
+                    st.warning(
+                        "LMM results unavailable — check that you have enough litters and samples.")
+            else:
+                render_summary_table(
+                    results, treatment_col, gene, gene_display)
 
-                            # CSV download
-                            csv = summary_table.to_csv(
-                                index=False).encode('utf-8')
-                            st.download_button(
-                                label="⬇️ Download results as CSV",
-                                data=csv,
-                                file_name=f'{gene_display}_results.csv',
-                                mime='text/csv'
-                            )
-                            st.dataframe(
-                                summary_table, use_container_width=True)
+    st.divider()
+    st.success("✅ Analysis complete! Check the outputs/ folder for saved figures.")
 
-                st.divider()
-                st.success(
-                    "✅ Analysis complete! Check the outputs/ folder for saved figures.")
+
+# ════════════════════════════════════════
+# ── MANUAL ENTRY MODE ──
+# ════════════════════════════════════════
+if "manually" in input_method:
+
+    st.subheader("✏️ Manual Data Entry")
+    st.markdown("Configure your experiment below, then fill in your Ct values.")
+    st.divider()
+
+    with st.expander("Step 1 — Experiment Setup", expanded=True):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            n_samples = st.number_input(
+                "Number of samples", min_value=1, max_value=500, value=9, step=1
+            )
+            treatment_groups_input = st.text_input(
+                "Treatment groups (comma separated)",
+                value="BPA, E2, Vehicle",
+                help="e.g. BPA, E2, Vehicle"
+            )
+            control_group_manual = st.text_input(
+                "Control group name (must match one above exactly)",
+                value="Vehicle"
+            )
+
+        with col2:
+            genes_input = st.text_input(
+                "Genes of interest (comma separated)",
+                value="IL10, TNF",
+                help="e.g. IL10, TNF, IFNG"
+            )
+            housekeeping_manual = st.text_input(
+                "Housekeeping gene name",
+                value="GAPDH"
+            )
+
+    treatment_groups = [t.strip()
+                        for t in treatment_groups_input.split(',') if t.strip()]
+    gene_names = [g.strip() for g in genes_input.split(',') if g.strip()]
+    all_gene_names = gene_names + [housekeeping_manual]
+
+    gene_cols_manual = [f"{g.lower()}_ct" for g in gene_names]
+    housekeeping_col_manual = f"{housekeeping_manual.lower()}_ct"
+
+    with st.expander("Step 2 — Enter Your Ct Values", expanded=True):
+        st.markdown("Fill in the table below. Click any cell to edit it.")
+
+        template_data = {
+            'sample_id': [f'S{str(i+1).zfill(2)}' for i in range(n_samples)],
+            'treatment': [treatment_groups[i % len(treatment_groups)] for i in range(n_samples)],
+        }
+
+        if "In vivo" in experiment_type:
+            template_data['litter_id'] = [
+                f'L{(i // 3) + 1}' for i in range(n_samples)]
+
+        for gene in all_gene_names:
+            template_data[f"{gene.lower()}_ct"] = [None] * n_samples
+
+        template_df = pd.DataFrame(template_data)
+
+        edited_df = st.data_editor(
+            template_df,
+            use_container_width=True,
+            num_rows="fixed",
+            column_config={
+                'sample_id': st.column_config.TextColumn('Sample ID'),
+                'treatment': st.column_config.SelectboxColumn(
+                    'Treatment',
+                    options=treatment_groups
+                ),
+                **({'litter_id': st.column_config.TextColumn('Litter ID')}
+                   if "In vivo" in experiment_type else {}),
+                **{
+                    f"{gene.lower()}_ct": st.column_config.NumberColumn(
+                        f"{gene} Ct",
+                        min_value=0.0,
+                        max_value=50.0,
+                        step=0.01,
+                        format="%.2f"
+                    ) for gene in all_gene_names
+                }
+            },
+            hide_index=True
+        )
+
+    st.divider()
+    if st.button("▶️ Run Analysis", type="primary"):
+        ct_cols = [f"{g.lower()}_ct" for g in all_gene_names]
+        if edited_df[ct_cols].isnull().any().any():
+            st.error("⚠️ Please fill in all Ct values before running the analysis.")
+        elif control_group_manual not in treatment_groups:
+            st.error(
+                f"⚠️ Control group '{control_group_manual}' doesn't match any treatment group.")
+        else:
+            litter_col_manual = 'litter_id' if "In vivo" in experiment_type else None
+            with st.spinner("Running analysis..."):
+                run_analysis(
+                    edited_df,
+                    gene_cols_manual,
+                    housekeeping_col_manual,
+                    'treatment',
+                    control_group_manual,
+                    litter_col_manual
+                )
+
+
+# ════════════════════════════════════════
+# ── FILE UPLOAD MODE ──
+# ════════════════════════════════════════
+else:
+    st.subheader("📂 Upload Your Data")
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV, Excel, or TXT file",
+        type=["csv", "xlsx", "xls", "txt"]
+    )
+
+    if uploaded_file is None:
+        st.info("👆 Upload your file above to get started.")
+
+        st.markdown("### Expected format")
+        example = pd.DataFrame({
+            'sample_id':  ['S01', 'S02', 'S03'],
+            'litter_id':  ['L1', 'L1', 'L2'],
+            'treatment':  ['BPA', 'Vehicle', 'E2'],
+            'il10_ct':    [28.3, 31.2, 27.1],
+            'tnf_ct':     [30.1, 33.0, 28.9],
+            'gapdh_ct':   [20.2, 20.1, 20.2],
+        })
+        st.dataframe(example, use_container_width=True)
+        st.markdown("""
+        - **sample_id** — unique identifier per sample
+        - **litter_id** — litter or grouping ID *(in vivo mode only)*
+        - **treatment** — treatment group (e.g. BPA, E2, Vehicle)
+        - **gene_ct columns** — one column per gene including housekeeping gene
+        """)
+
+    else:
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.txt'):
+            df = pd.read_csv(uploaded_file, sep='\t')
+        else:
+            df = pd.read_excel(uploaded_file)
+
+        st.success(f"✅ Loaded {len(df)} samples successfully!")
+
+        with st.expander("Preview raw data"):
+            st.dataframe(df, use_container_width=True)
+
+        st.divider()
+        st.subheader("🔧 Configure Analysis")
+
+        col1, col2, col3 = st.columns(3)
+        all_cols = df.columns.tolist()
+
+        with col1:
+            treatment_col = st.selectbox(
+                "Treatment column", all_cols,
+                index=all_cols.index(
+                    'treatment') if 'treatment' in all_cols else 0
+            )
+            control_group = st.selectbox(
+                "Control group",
+                df[treatment_col].unique().tolist()
+            )
+
+        with col2:
+            housekeeping_col = st.selectbox(
+                "Housekeeping gene column", all_cols,
+                index=all_cols.index(
+                    'gapdh_ct') if 'gapdh_ct' in all_cols else 0
+            )
+            gene_options = [c for c in all_cols if c.endswith(
+                '_ct') and c != housekeeping_col]
+            gene_cols = st.multiselect(
+                "Genes of interest", gene_options, default=gene_options)
+
+        with col3:
+            if "In vivo" in experiment_type:
+                litter_col_options = [
+                    c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()]
+                litter_col = st.selectbox(
+                    "Grouping variable column", litter_col_options)
+
+        st.divider()
+
+        if st.button("▶️ Run Analysis", type="primary"):
+            if not gene_cols:
+                st.error("Please select at least one gene of interest.")
+            else:
+                litter_col_upload = litter_col if "In vivo" in experiment_type else None
+                with st.spinner("Running analysis..."):
+                    run_analysis(
+                        df, gene_cols, housekeeping_col,
+                        treatment_col, control_group, litter_col_upload
+                    )
