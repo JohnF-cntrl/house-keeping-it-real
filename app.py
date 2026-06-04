@@ -15,7 +15,7 @@ st.set_page_config(
 
 # ── HEADER ──
 st.title("🧬 house-keeping-it-real")
-st.markdown("*A qRT-PCR analysis tool built for any lab, any experiment.*")
+st.markdown("*A qRT-PCR analysis tool built for the St.A.B Lab, and beyond!🚀.*")
 st.divider()
 
 # ── SIDEBAR ──
