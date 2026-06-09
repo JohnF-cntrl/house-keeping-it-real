@@ -65,9 +65,7 @@ def render_summary_table(results, treatment_col, gene, gene_display):
     summary_table.columns = ['Treatment', 'Mean Fold Change', 'SEM', 'N']
     summary_table = summary_table.round(4)
     summary_table['SEM'] = summary_table['SEM'].fillna('N/A')
-
     st.dataframe(summary_table, use_container_width=False, hide_index=True)
-
     csv = summary_table.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="⬇️ Download results as CSV",
@@ -80,13 +78,6 @@ def render_summary_table(results, treatment_col, gene, gene_display):
 
 # ── HELPER: Run Analysis ──
 def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, litter_col=None):
-    # Store in session state for save form
-    st.session_state["last_df"] = df.copy()
-    st.session_state["last_gene_cols"] = gene_cols
-    st.session_state["last_housekeeping_col"] = housekeeping_col
-    st.session_state["last_treatment_col"] = treatment_col
-    st.session_state["last_control_group"] = control_group
-
     # Ensure all Ct columns are numeric
     ct_cols = gene_cols + [housekeeping_col]
     for col in ct_cols:
@@ -94,8 +85,22 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
 
     results = run_pipeline(df, gene_cols, housekeeping_col,
                            treatment_col, control_group)
-    st.session_state["last_results"] = results.copy()
 
+    # Store everything in session state so it survives reruns
+    st.session_state["analysis_done"] = True
+    st.session_state["last_df"] = df.copy()
+    st.session_state["last_results"] = results.copy()
+    st.session_state["last_gene_cols"] = gene_cols
+    st.session_state["last_housekeeping_col"] = housekeeping_col
+    st.session_state["last_treatment_col"] = treatment_col
+    st.session_state["last_control_group"] = control_group
+    st.session_state["last_experiment_type"] = experiment_type
+
+    return results
+
+
+# ── HELPER: Display Results ──
+def display_results(results, gene_cols, treatment_col, control_group, df):
     st.subheader("📊 Results")
 
     for gene in gene_cols:
@@ -107,13 +112,13 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
         pct_residual = None
         summary = None
 
-        if "In vivo" in experiment_type and litter_col:
+        if "In vivo" in experiment_type and st.session_state.get("last_litter_col"):
+            litter_col = st.session_state["last_litter_col"]
             try:
                 lmm_result = run_lmm(
                     results, gene, treatment_col, litter_col, control_group)
                 summary, pct_litter, pct_residual = summarize_lmm(
                     lmm_result, gene)
-
                 lmm_pvalues = {}
                 for idx in summary.index:
                     for group in df[treatment_col].unique():
@@ -124,8 +129,7 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
                     f"LMM could not be fitted for {gene_display}: {str(e)}")
 
         plot_fig = plot_fold_changes(
-            results, gene, treatment_col, lmm_pvalues=lmm_pvalues
-        )
+            results, gene, treatment_col, lmm_pvalues=lmm_pvalues)
 
         tab_labels = ["Fold Change Plot", "LMM Results (in vivo)"] \
             if "In vivo" in experiment_type \
@@ -170,17 +174,18 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
     st.divider()
     st.success("✅ Analysis complete!")
 
-    # ── SAVE EXPERIMENT ──
+
+# ── HELPER: Save Form ──
+def show_save_form(results, gene_cols, treatment_col, control_group, housekeeping_col, df):
     st.subheader("💾 Save This Experiment")
 
     if is_logged_in():
-        with st.form("save_form"):
-            exp_name = st.text_input(
-                "Experiment name", placeholder="e.g. BPA CD22 June 2025")
-            is_public = st.checkbox("Make this experiment publicly shareable")
-            save_btn = st.form_submit_button("Save Experiment", type="primary")
+        exp_name = st.text_input(
+            "Experiment name", placeholder="e.g. BPA CD22 June 2025", key="exp_name_input")
+        is_public = st.checkbox(
+            "Make this experiment publicly shareable", key="is_public_input")
 
-        if save_btn:
+        if st.button("Save Experiment", type="primary", key="save_btn"):
             if not exp_name:
                 st.error("Please enter a name for this experiment.")
             else:
@@ -200,24 +205,22 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
                     results_json = all_results.fillna(
                         'N/A').to_json(orient='records')
 
-                    st.write("DEBUG — attempting save...")
-                    st.write("DEBUG — user logged in:", is_logged_in())
-
-                    success, exp_id, share_token = save_experiment(
-                        name=exp_name,
-                        experiment_type=experiment_type,
-                        treatment_groups=list(df[treatment_col].unique()),
-                        control_group=control_group,
-                        genes=gene_cols,
-                        housekeeping_gene=housekeeping_col,
-                        results_json=results_json,
-                        is_public=is_public
-                    )
-
-                    st.write("DEBUG — result:", success, exp_id, share_token)
+                    with st.spinner("Saving..."):
+                        success, exp_id, share_token = save_experiment(
+                            name=exp_name,
+                            experiment_type=st.session_state.get(
+                                "last_experiment_type", experiment_type),
+                            treatment_groups=list(df[treatment_col].unique()),
+                            control_group=control_group,
+                            genes=gene_cols,
+                            housekeeping_gene=housekeeping_col,
+                            results_json=results_json,
+                            is_public=is_public
+                        )
 
                     if success:
-                        st.success(f"✅ Experiment saved!")
+                        st.success(
+                            "✅ Experiment saved! View it in My Experiments.")
                         if is_public and share_token:
                             share_url = f"https://house-keeping-it-real.streamlit.app/?share={share_token}"
                             st.markdown(f"**Share link:** {share_url}")
@@ -241,55 +244,37 @@ if "manually" in input_method:
 
     with st.expander("Step 1 — Experiment Setup", expanded=True):
         col1, col2 = st.columns(2)
-
         with col1:
             n_samples = st.number_input(
-                "Number of samples", min_value=1, max_value=500, value=9, step=1
-            )
+                "Number of samples", min_value=1, max_value=500, value=9, step=1)
             treatment_groups_input = st.text_input(
-                "Treatment groups (comma separated)",
-                value="BPA, E2, Vehicle",
-                help="e.g. BPA, E2, Vehicle"
-            )
+                "Treatment groups (comma separated)", value="BPA, E2, Vehicle")
             control_group_manual = st.text_input(
-                "Control group name (must match one above exactly)",
-                value="Vehicle"
-            )
-
+                "Control group name (must match one above exactly)", value="Vehicle")
         with col2:
             genes_input = st.text_input(
-                "Genes of interest (comma separated)",
-                value="IL10, TNF",
-                help="e.g. IL10, TNF, IFNG"
-            )
+                "Genes of interest (comma separated)", value="IL10, TNF")
             housekeeping_manual = st.text_input(
-                "Housekeeping gene name",
-                value="GAPDH"
-            )
+                "Housekeeping gene name", value="GAPDH")
 
     treatment_groups = [t.strip()
                         for t in treatment_groups_input.split(',') if t.strip()]
     gene_names = [g.strip() for g in genes_input.split(',') if g.strip()]
     all_gene_names = gene_names + [housekeeping_manual]
-
     gene_cols_manual = [f"{g.lower()}_ct" for g in gene_names]
     housekeeping_col_manual = f"{housekeeping_manual.lower()}_ct"
 
     with st.expander("Step 2 — Enter Your Ct Values", expanded=True):
         st.markdown("Fill in the table below. Click any cell to edit it.")
-
         template_data = {
             'sample_id': [f'S{str(i+1).zfill(2)}' for i in range(n_samples)],
             'treatment': [treatment_groups[i % len(treatment_groups)] for i in range(n_samples)],
         }
-
         if "In vivo" in experiment_type:
             template_data['litter_id'] = [
                 f'L{(i // 3) + 1}' for i in range(n_samples)]
-
         for gene in all_gene_names:
             template_data[f"{gene.lower()}_ct"] = [None] * n_samples
-
         template_df = pd.DataFrame(template_data)
 
         edited_df = st.data_editor(
@@ -298,21 +283,9 @@ if "manually" in input_method:
             num_rows="fixed",
             column_config={
                 'sample_id': st.column_config.TextColumn('Sample ID'),
-                'treatment': st.column_config.SelectboxColumn(
-                    'Treatment',
-                    options=treatment_groups
-                ),
-                **({'litter_id': st.column_config.TextColumn('Litter ID')}
-                   if "In vivo" in experiment_type else {}),
-                **{
-                    f"{gene.lower()}_ct": st.column_config.NumberColumn(
-                        f"{gene} Ct",
-                        min_value=0.0,
-                        max_value=50.0,
-                        step=0.01,
-                        format="%.2f"
-                    ) for gene in all_gene_names
-                }
+                'treatment': st.column_config.SelectboxColumn('Treatment', options=treatment_groups),
+                **({'litter_id': st.column_config.TextColumn('Litter ID')} if "In vivo" in experiment_type else {}),
+                **{f"{gene.lower()}_ct": st.column_config.NumberColumn(f"{gene} Ct", min_value=0.0, max_value=50.0, step=0.01, format="%.2f") for gene in all_gene_names}
             },
             hide_index=True
         )
@@ -327,48 +300,27 @@ if "manually" in input_method:
                 f"⚠️ Control group '{control_group_manual}' doesn't match any treatment group.")
         else:
             litter_col_manual = 'litter_id' if "In vivo" in experiment_type else None
+            st.session_state["last_litter_col"] = litter_col_manual
             with st.spinner("Running analysis..."):
-                run_analysis(
-                    edited_df,
-                    gene_cols_manual,
-                    housekeeping_col_manual,
-                    'treatment',
-                    control_group_manual,
-                    litter_col_manual
-                )
-
+                run_analysis(edited_df, gene_cols_manual, housekeeping_col_manual,
+                             'treatment', control_group_manual, litter_col_manual)
 
 # ════════════════════════════════════════
 # ── FILE UPLOAD MODE ──
 # ════════════════════════════════════════
 else:
     st.subheader("📂 Upload Your Data")
-
-    uploaded_file = st.file_uploader(
-        "Upload CSV, Excel, or TXT file",
-        type=["csv", "xlsx", "xls", "txt"]
-    )
+    uploaded_file = st.file_uploader("Upload CSV, Excel, or TXT file", type=[
+                                     "csv", "xlsx", "xls", "txt"])
 
     if uploaded_file is None:
         st.info("👆 Upload your file above to get started.")
-
-        st.markdown("### Expected format")
         example = pd.DataFrame({
-            'sample_id':  ['S01', 'S02', 'S03'],
-            'litter_id':  ['L1', 'L1', 'L2'],
-            'treatment':  ['BPA', 'Vehicle', 'E2'],
-            'il10_ct':    [28.3, 31.2, 27.1],
-            'tnf_ct':     [30.1, 33.0, 28.9],
-            'gapdh_ct':   [20.2, 20.1, 20.2],
+            'sample_id': ['S01', 'S02', 'S03'], 'litter_id': ['L1', 'L1', 'L2'],
+            'treatment': ['BPA', 'Vehicle', 'E2'], 'il10_ct': [28.3, 31.2, 27.1],
+            'tnf_ct': [30.1, 33.0, 28.9], 'gapdh_ct': [20.2, 20.1, 20.2],
         })
         st.dataframe(example, use_container_width=True)
-        st.markdown("""
-        - **sample_id** — unique identifier per sample
-        - **litter_id** — litter or grouping ID *(in vivo mode only)*
-        - **treatment** — treatment group (e.g. BPA, E2, Vehicle)
-        - **gene_ct columns** — one column per gene including housekeeping gene
-        """)
-
     else:
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
@@ -378,38 +330,26 @@ else:
             df = pd.read_excel(uploaded_file)
 
         st.success(f"✅ Loaded {len(df)} samples successfully!")
-
         with st.expander("Preview raw data"):
             st.dataframe(df, use_container_width=True)
 
         st.divider()
         st.subheader("🔧 Configure Analysis")
-
         col1, col2, col3 = st.columns(3)
         all_cols = df.columns.tolist()
 
         with col1:
-            treatment_col = st.selectbox(
-                "Treatment column", all_cols,
-                index=all_cols.index(
-                    'treatment') if 'treatment' in all_cols else 0
-            )
+            treatment_col = st.selectbox("Treatment column", all_cols, index=all_cols.index(
+                'treatment') if 'treatment' in all_cols else 0)
             control_group = st.selectbox(
-                "Control group",
-                df[treatment_col].unique().tolist()
-            )
-
+                "Control group", df[treatment_col].unique().tolist())
         with col2:
-            housekeeping_col = st.selectbox(
-                "Housekeeping gene column", all_cols,
-                index=all_cols.index(
-                    'gapdh_ct') if 'gapdh_ct' in all_cols else 0
-            )
+            housekeeping_col = st.selectbox("Housekeeping gene column", all_cols, index=all_cols.index(
+                'gapdh_ct') if 'gapdh_ct' in all_cols else 0)
             gene_options = [c for c in all_cols if c.endswith(
                 '_ct') and c != housekeeping_col]
             gene_cols = st.multiselect(
                 "Genes of interest", gene_options, default=gene_options)
-
         with col3:
             if "In vivo" in experiment_type:
                 litter_col_options = [
@@ -418,14 +358,28 @@ else:
                     "Grouping variable column", litter_col_options)
 
         st.divider()
-
         if st.button("▶️ Run Analysis", type="primary"):
             if not gene_cols:
                 st.error("Please select at least one gene of interest.")
             else:
                 litter_col_upload = litter_col if "In vivo" in experiment_type else None
+                st.session_state["last_litter_col"] = litter_col_upload
                 with st.spinner("Running analysis..."):
-                    run_analysis(
-                        df, gene_cols, housekeeping_col,
-                        treatment_col, control_group, litter_col_upload
-                    )
+                    run_analysis(df, gene_cols, housekeeping_col,
+                                 treatment_col, control_group, litter_col_upload)
+
+
+# ════════════════════════════════════════
+# ── SHOW RESULTS FROM SESSION STATE ──
+# ════════════════════════════════════════
+if st.session_state.get("analysis_done"):
+    results = st.session_state["last_results"]
+    gene_cols = st.session_state["last_gene_cols"]
+    treatment_col = st.session_state["last_treatment_col"]
+    control_group = st.session_state["last_control_group"]
+    housekeeping_col = st.session_state["last_housekeeping_col"]
+    df = st.session_state["last_df"]
+
+    display_results(results, gene_cols, treatment_col, control_group, df)
+    show_save_form(results, gene_cols, treatment_col,
+                   control_group, housekeeping_col, df)
