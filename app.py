@@ -19,22 +19,47 @@ if share_token:
     from utils.supabase_client import get_experiment_by_token
     exp = get_experiment_by_token(share_token)
     if exp:
+        st.set_page_config(
+            page_title=f"{exp['name']} — house-keeping-it-real", page_icon="🧬", layout="wide")
         st.title(f"🧬 {exp['name']}")
         st.markdown(f"*Shared experiment — {exp['created_at'][:10]}*")
         st.divider()
-        st.markdown(f"**Experiment type:** {exp['experiment_type']}")
-        st.markdown(f"**Genes:** {exp['genes']}")
-        st.markdown(f"**Treatment groups:** {exp['treatment_groups']}")
-        st.markdown(f"**Control group:** {exp['control_group']}")
-        st.markdown(f"**Housekeeping gene:** {exp['housekeeping_gene']}")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Experiment type:** {exp['experiment_type']}")
+            st.markdown(
+                f"**Genes:** {', '.join([g.replace('_ct','').upper() for g in exp['genes'].split(',')])}")
+            st.markdown(f"**Treatment groups:** {exp['treatment_groups']}")
+        with col2:
+            st.markdown(f"**Control group:** {exp['control_group']}")
+            st.markdown(
+                f"**Housekeeping gene:** {exp['housekeeping_gene'].replace('_ct','').upper()}")
+
         st.divider()
-        import json
+
         results_data = json.loads(exp['results_json'])
         results_df = pd.DataFrame(results_data)
-        st.subheader("📊 Results")
-        st.dataframe(results_df, use_container_width=True, hide_index=True)
+
+        genes = results_df['Gene'].unique()
+        for gene in genes:
+            st.subheader(f"📊 {gene}")
+            gene_df = results_df[results_df['Gene'] == gene][[
+                'Treatment', 'Mean Fold Change', 'SEM', 'N']]
+            st.dataframe(gene_df, use_container_width=False, hide_index=True)
+            st.divider()
+
+        csv = results_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Download results as CSV",
+            data=csv,
+            file_name=f"{exp['name'].replace(' ','_')}_results.csv",
+            mime='text/csv'
+        )
         st.stop()
     else:
+        st.set_page_config(page_title="house-keeping-it-real",
+                           page_icon="🧬", layout="wide")
         st.error("This shared experiment could not be found or is no longer public.")
         st.stop()
 
@@ -105,7 +130,6 @@ def render_summary_table(results, treatment_col, gene, gene_display):
 
 # ── HELPER: Run Analysis ──
 def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, litter_col=None):
-    # Ensure all Ct columns are numeric
     ct_cols = gene_cols + [housekeeping_col]
     for col in ct_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -113,7 +137,6 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
     results = run_pipeline(df, gene_cols, housekeeping_col,
                            treatment_col, control_group)
 
-    # Store everything in session state so it survives reruns
     st.session_state["analysis_done"] = True
     st.session_state["last_df"] = df.copy()
     st.session_state["last_results"] = results.copy()
@@ -331,6 +354,7 @@ if "manually" in input_method:
             with st.spinner("Running analysis..."):
                 run_analysis(edited_df, gene_cols_manual, housekeeping_col_manual,
                              'treatment', control_group_manual, litter_col_manual)
+
 
 # ════════════════════════════════════════
 # ── FILE UPLOAD MODE ──
