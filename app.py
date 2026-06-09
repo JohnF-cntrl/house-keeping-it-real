@@ -11,6 +11,33 @@ from utils.supabase_client import is_logged_in, save_experiment, restore_session
 # ── RESTORE SESSION ──
 restore_session()
 
+# ── HANDLE SHARE LINKS ──
+query_params = st.query_params
+share_token = query_params.get("share", None)
+
+if share_token:
+    from utils.supabase_client import get_experiment_by_token
+    exp = get_experiment_by_token(share_token)
+    if exp:
+        st.title(f"🧬 {exp['name']}")
+        st.markdown(f"*Shared experiment — {exp['created_at'][:10]}*")
+        st.divider()
+        st.markdown(f"**Experiment type:** {exp['experiment_type']}")
+        st.markdown(f"**Genes:** {exp['genes']}")
+        st.markdown(f"**Treatment groups:** {exp['treatment_groups']}")
+        st.markdown(f"**Control group:** {exp['control_group']}")
+        st.markdown(f"**Housekeeping gene:** {exp['housekeeping_gene']}")
+        st.divider()
+        import json
+        results_data = json.loads(exp['results_json'])
+        results_df = pd.DataFrame(results_data)
+        st.subheader("📊 Results")
+        st.dataframe(results_df, use_container_width=True, hide_index=True)
+        st.stop()
+    else:
+        st.error("This shared experiment could not be found or is no longer public.")
+        st.stop()
+
 # ── PAGE CONFIG ──
 st.set_page_config(
     page_title="house-keeping-it-real",
