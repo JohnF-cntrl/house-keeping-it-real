@@ -26,14 +26,14 @@ with col1:
     if is_logged_in():
         user = get_current_user()
         st.success(f"✅ Logged in as **{user.email}**")
-        st.page_link("pages/Analysis.py", label="Go to Analysis", icon="🔬")
+        st.page_link("Analysis.py", label="Go to Analysis", icon="🔬")
     else:
         col_a, col_b = st.columns(2)
         with col_a:
             st.page_link("pages/🔐_Login.py",
                          label="Log In / Sign Up", icon="🔐")
         with col_b:
-            st.page_link("pages/Analysis.py",
+            st.page_link("Analysis.py",
                          label="Try without account", icon="🧬")
 
 with col2:

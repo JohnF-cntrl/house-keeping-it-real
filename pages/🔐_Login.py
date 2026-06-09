@@ -17,7 +17,7 @@ if is_logged_in():
     if st.button("Log out", type="secondary"):
         logout()
         st.rerun()
-    st.page_link("pages/🧬_Analysis.py", label="Go to Analysis", icon="🔬")
+    st.page_link("Analysis.py", label="Go to Analysis", icon="🔬")
 
 else:
     col1, col2 = st.columns([1, 1], gap="large")
