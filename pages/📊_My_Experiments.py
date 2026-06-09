@@ -30,7 +30,8 @@ experiments = get_my_experiments()
 if not experiments:
     st.info("You haven't saved any experiments yet. Run an analysis and click **Save Experiment** to get started!")
 else:
-    st.markdown(f"### {len(experiments)} saved experiment{'s' if len(experiments) != 1 else ''}")
+    st.markdown(
+        f"### {len(experiments)} saved experiment{'s' if len(experiments) != 1 else ''}")
     spacer = st.empty()
 
     for exp in experiments:
@@ -39,10 +40,13 @@ else:
 
             with col1:
                 st.markdown(f"**Experiment type:** {exp['experiment_type']}")
-                st.markdown(f"**Genes:** {exp['genes']}")
-                st.markdown(f"**Treatment groups:** {exp['treatment_groups']}")
+                st.markdown(
+                    f"**Genes:** {', '.join([g.replace('_ct','').upper() for g in exp['genes'].split(',')])}")
+                st.markdown(
+                    f"**Housekeeping gene:** {exp['housekeeping_gene'].replace('_ct','').upper()}")
                 st.markdown(f"**Control group:** {exp['control_group']}")
-                st.markdown(f"**Housekeeping gene:** {exp['housekeeping_gene']}")
+                st.markdown(
+                    f"**Housekeeping gene:** {exp['housekeeping_gene']}")
 
                 # Show share link if public
                 if exp['is_public'] and exp['share_token']:
