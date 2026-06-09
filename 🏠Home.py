@@ -32,21 +32,6 @@ with col1:
             st.page_link("pages/📈Analysis.py",
                          label="Try without account", icon="🧬")
 
-with col2:
-    st.markdown("")
-    st.markdown("")
-    st.info("""
-**🔬 What you can do:**
-
-- Enter raw Ct values manually or upload a file
-- Auto-calculate ΔΔCt and fold changes
-- Generate interactive publication-ready charts
-- Run Linear Mixed Models for in vivo litter correction
-- Save and share experiments with collaborators
-- Access from any device, anywhere
-""")
-
-st.divider()
 
 # ── FEATURES ──
 st.markdown("### What it does")
