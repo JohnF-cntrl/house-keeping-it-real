@@ -1,12 +1,12 @@
-import json
-from utils.supabase_client import is_logged_in, save_experiment
 import streamlit as st
 import pandas as pd
 import numpy as np
+import json
 import plotly.graph_objects as go
 from modules.qpcr import run_pipeline
 from modules.lmm import run_lmm, summarize_lmm
 from modules.plots import plot_fold_changes, plot_litter_variance
+from utils.supabase_client import is_logged_in, save_experiment
 
 # ── PAGE CONFIG ──
 st.set_page_config(
@@ -17,7 +17,7 @@ st.set_page_config(
 
 # ── HEADER ──
 st.title("🧬 house-keeping-it-real")
-st.markdown("*A qRT-PCR analysis tool built for the St.A.B Lab, and beyond!🚀.*")
+st.markdown("*A qRT-PCR analysis tool built for any lab, any experiment.*")
 st.divider()
 
 # ── SIDEBAR ──
@@ -26,8 +26,7 @@ with st.sidebar:
 
     experiment_type = st.radio(
         "Experiment type",
-        ["In vitro (no grouping effect)",
-         "In vivo (account for grouping effect)"],
+        ["In vitro (no grouping effect)", "In vivo (account for grouping effect)"],
         help="In vivo mode uses a Linear Mixed Model to account for litter or other grouping effects."
     )
 
@@ -38,6 +37,20 @@ with st.sidebar:
         ["✏️ Enter values manually", "📂 Upload a file"],
         help="Manual entry lets you type values directly. Upload supports CSV, Excel, and TXT files."
     )
+
+    st.divider()
+
+    # ── LOGIN STATUS IN SIDEBAR ──
+    if is_logged_in():
+        from utils.supabase_client import get_current_user, logout
+        user = get_current_user()
+        st.success(f"✅ {user.email}")
+        if st.button("Log out", type="secondary"):
+            logout()
+            st.rerun()
+    else:
+        st.info("💡 Log in to save & share experiments.")
+        st.page_link("pages/🔐_Login.py", label="Log In / Sign Up", icon="🔐")
 
 
 # ── HELPER: Summary Table ──
@@ -57,19 +70,29 @@ def render_summary_table(results, treatment_col, gene, gene_display):
         label="⬇️ Download results as CSV",
         data=csv,
         file_name=f'{gene_display}_results.csv',
-        mime='text/csv'
+        mime='text/csv',
+        key=f"download_csv_{gene}"
     )
 
 
 # ── HELPER: Run Analysis ──
 def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, litter_col=None):
+    # Store in session state for save form
+    st.session_state["last_df"] = df.copy()
+    st.session_state["last_gene_cols"] = gene_cols
+    st.session_state["last_housekeeping_col"] = housekeeping_col
+    st.session_state["last_treatment_col"] = treatment_col
+    st.session_state["last_control_group"] = control_group
+
     # Ensure all Ct columns are numeric
     ct_cols = gene_cols + [housekeeping_col]
     for col in ct_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    results = run_pipeline(df, gene_cols, housekeeping_col,
-                           treatment_col, control_group)
+    results = run_pipeline(df, gene_cols, housekeeping_col, treatment_col, control_group)
+
+    # Store results in session state too
+    st.session_state["last_results"] = results.copy()
 
     st.subheader("📊 Results")
 
@@ -84,10 +107,8 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
 
         if "In vivo" in experiment_type and litter_col:
             try:
-                lmm_result = run_lmm(
-                    results, gene, treatment_col, litter_col, control_group)
-                summary, pct_litter, pct_residual = summarize_lmm(
-                    lmm_result, gene)
+                lmm_result = run_lmm(results, gene, treatment_col, litter_col, control_group)
+                summary, pct_litter, pct_residual = summarize_lmm(lmm_result, gene)
 
                 lmm_pvalues = {}
                 for idx in summary.index:
@@ -95,8 +116,7 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
                         if group != control_group and group in str(idx):
                             lmm_pvalues[group] = summary.loc[idx, 'p-value']
             except Exception as e:
-                st.warning(
-                    f"LMM could not be fitted for {gene_display}: {str(e)}")
+                st.warning(f"LMM could not be fitted for {gene_display}: {str(e)}")
 
         plot_fig = plot_fold_changes(
             results, gene, treatment_col, lmm_pvalues=lmm_pvalues
@@ -109,8 +129,7 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
         tab1, tab2 = st.tabs(tab_labels)
 
         with tab1:
-            st.plotly_chart(plot_fig, use_container_width=False,
-                            key=f"plot_{gene}")
+            st.plotly_chart(plot_fig, use_container_width=False, key=f"plot_{gene}")
 
         with tab2:
             if "In vivo" in experiment_type:
@@ -120,83 +139,75 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
                         st.markdown("**Fixed Effects (Treatment)**")
                         st.dataframe(summary, use_container_width=True)
                     with col_b:
-
                         variance_ok = (
                             pct_litter is not None and
                             pct_residual is not None and
                             not (isinstance(pct_litter, float) and np.isnan(pct_litter)) and
-                            not (isinstance(pct_residual, float)
-                                 and np.isnan(pct_residual))
+                            not (isinstance(pct_residual, float) and np.isnan(pct_residual))
                         )
-
                         if variance_ok:
-                            variance_fig = plot_litter_variance(
-                                pct_litter, pct_residual, gene)
-                            st.plotly_chart(
-                                variance_fig, use_container_width=False, key=f"variance_{gene}")
+                            variance_fig = plot_litter_variance(pct_litter, pct_residual, gene)
+                            st.plotly_chart(variance_fig, use_container_width=False, key=f"variance_{gene}")
                         else:
-                            st.info(
-                                "Not enough data to estimate litter variance. Add more litters.")
+                            st.info("Not enough data to estimate litter variance. Add more litters.")
                 else:
-                    st.warning(
-                        "LMM results unavailable — check that you have enough litters and samples.")
+                    st.warning("LMM results unavailable — check that you have enough litters and samples.")
             else:
-                render_summary_table(
-                    results, treatment_col, gene, gene_display)
+                render_summary_table(results, treatment_col, gene, gene_display)
 
+    st.divider()
+    st.success("✅ Analysis complete!")
 
-st.divider()
-st.success("✅ Analysis complete! Check the outputs/ folder for saved figures.")
-
-# ── SAVE EXPERIMENT ──
-
-if is_logged_in():
+    # ── SAVE EXPERIMENT ──
     st.subheader("💾 Save This Experiment")
-    with st.form("save_form"):
-        exp_name = st.text_input(
-            "Experiment name", placeholder="e.g. BPA CD22 June 2025")
-        is_public = st.checkbox("Make this experiment publicly shareable")
-        save_btn = st.form_submit_button("Save Experiment", type="primary")
 
-    if save_btn:
-        if not exp_name:
-            st.error("Please enter a name for this experiment.")
-        else:
-            try:
-                summary_data = []
-                for gene in gene_cols:
-                    fold_col = f'fold_change_{gene}'
-                    gene_summary = results.groupby(treatment_col)[fold_col].agg(
-                        ['mean', 'sem', 'count']
-                    ).reset_index()
-                    gene_summary.columns = [
-                        'Treatment', 'Mean Fold Change', 'SEM', 'N']
-                    gene_summary['Gene'] = gene.replace('_ct', '').upper()
-                    summary_data.append(gene_summary)
-                all_results = pd.concat(summary_data).round(4)
-                results_json = all_results.to_json(orient='records')
+    if is_logged_in():
+        with st.form("save_form"):
+            exp_name = st.text_input("Experiment name", placeholder="e.g. BPA CD22 June 2025")
+            is_public = st.checkbox("Make this experiment publicly shareable")
+            save_btn = st.form_submit_button("Save Experiment", type="primary")
 
-                success, exp_id, share_token = save_experiment(
-                    name=exp_name,
-                    experiment_type=experiment_type,
-                    treatment_groups=list(df[treatment_col].unique()),
-                    control_group=control_group,
-                    genes=gene_cols,
-                    housekeeping_gene=housekeeping_col,
-                    results_json=results_json,
-                    is_public=is_public
-                )
-                if success:
-                    st.success(f"✅ Experiment saved!")
-                    if is_public and share_token:
-                        share_url = f"https://house-keeping-it-real.streamlit.app/?share={share_token}"
-                        st.markdown(f"**Share link:** {share_url}")
-                else:
-                    st.error(f"Could not save: {exp_id}")
-            except Exception as e:
-                st.error(f"Error saving: {str(e)}")
-else:
-    st.info("💡 [Log in](./🔐_Login) to save and share your experiments.")
+        if save_btn:
+            if not exp_name:
+                st.error("Please enter a name for this experiment.")
+            else:
+                try:
+                    # Build summary from results
+                    summary_data = []
+                    for gene in gene_cols:
+                        fold_col = f'fold_change_{gene}'
+                        gene_summary = results.groupby(treatment_col)[fold_col].agg(
+                            ['mean', 'sem', 'count']
+                        ).reset_index()
+                        gene_summary.columns = ['Treatment', 'Mean Fold Change', 'SEM', 'N']
+                        gene_summary['Gene'] = gene.replace('_ct', '').upper()
+                        summary_data.append(gene_summary)
+
+                    all_results = pd.concat(summary_data).round(4)
+                    results_json = all_results.fillna('N/A').to_json(orient='records')
+
+                    success, exp_id, share_token = save_experiment(
+                        name=exp_name,
+                        experiment_type=experiment_type,
+                        treatment_groups=list(df[treatment_col].unique()),
+                        control_group=control_group,
+                        genes=gene_cols,
+                        housekeeping_gene=housekeeping_col,
+                        results_json=results_json,
+                        is_public=is_public
+                    )
+                    if success:
+                        st.success(f"✅ Experiment saved!")
+                        if is_public and share_token:
+                            share_url = f"https://house-keeping-it-real.streamlit.app/?share={share_token}"
+                            st.markdown(f"**Share link:** {share_url}")
+                    else:
+                        st.error(f"Could not save: {exp_id}")
+                except Exception as e:
+                    st.error(f"Error saving: {str(e)}")
+    else:
+        st.info("💡 Log in to save and share your experiments.")
+        st.page_link("pages/🔐_Login.py", label="Log In / Sign Up", icon="🔐")
 
 
 # ════════════════════════════════════════
@@ -236,8 +247,7 @@ if "manually" in input_method:
                 value="GAPDH"
             )
 
-    treatment_groups = [t.strip()
-                        for t in treatment_groups_input.split(',') if t.strip()]
+    treatment_groups = [t.strip() for t in treatment_groups_input.split(',') if t.strip()]
     gene_names = [g.strip() for g in genes_input.split(',') if g.strip()]
     all_gene_names = gene_names + [housekeeping_manual]
 
@@ -253,8 +263,7 @@ if "manually" in input_method:
         }
 
         if "In vivo" in experiment_type:
-            template_data['litter_id'] = [
-                f'L{(i // 3) + 1}' for i in range(n_samples)]
+            template_data['litter_id'] = [f'L{(i // 3) + 1}' for i in range(n_samples)]
 
         for gene in all_gene_names:
             template_data[f"{gene.lower()}_ct"] = [None] * n_samples
@@ -292,8 +301,7 @@ if "manually" in input_method:
         if edited_df[ct_cols].isnull().any().any():
             st.error("⚠️ Please fill in all Ct values before running the analysis.")
         elif control_group_manual not in treatment_groups:
-            st.error(
-                f"⚠️ Control group '{control_group_manual}' doesn't match any treatment group.")
+            st.error(f"⚠️ Control group '{control_group_manual}' doesn't match any treatment group.")
         else:
             litter_col_manual = 'litter_id' if "In vivo" in experiment_type else None
             with st.spinner("Running analysis..."):
@@ -360,8 +368,7 @@ else:
         with col1:
             treatment_col = st.selectbox(
                 "Treatment column", all_cols,
-                index=all_cols.index(
-                    'treatment') if 'treatment' in all_cols else 0
+                index=all_cols.index('treatment') if 'treatment' in all_cols else 0
             )
             control_group = st.selectbox(
                 "Control group",
@@ -371,20 +378,15 @@ else:
         with col2:
             housekeeping_col = st.selectbox(
                 "Housekeeping gene column", all_cols,
-                index=all_cols.index(
-                    'gapdh_ct') if 'gapdh_ct' in all_cols else 0
+                index=all_cols.index('gapdh_ct') if 'gapdh_ct' in all_cols else 0
             )
-            gene_options = [c for c in all_cols if c.endswith(
-                '_ct') and c != housekeeping_col]
-            gene_cols = st.multiselect(
-                "Genes of interest", gene_options, default=gene_options)
+            gene_options = [c for c in all_cols if c.endswith('_ct') and c != housekeeping_col]
+            gene_cols = st.multiselect("Genes of interest", gene_options, default=gene_options)
 
         with col3:
             if "In vivo" in experiment_type:
-                litter_col_options = [
-                    c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()]
-                litter_col = st.selectbox(
-                    "Grouping variable column", litter_col_options)
+                litter_col_options = [c for c in all_cols if 'litter' in c or 'group' in c or 'id' in c.lower()]
+                litter_col = st.selectbox("Grouping variable column", litter_col_options)
 
         st.divider()
 
