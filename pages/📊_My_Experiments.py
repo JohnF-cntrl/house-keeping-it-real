@@ -45,8 +45,6 @@ else:
                 st.markdown(
                     f"**Housekeeping gene:** {exp['housekeeping_gene'].replace('_ct','').upper()}")
                 st.markdown(f"**Control group:** {exp['control_group']}")
-                st.markdown(
-                    f"**Housekeeping gene:** {exp['housekeeping_gene']}")
 
                 # Show share link if public
                 if exp['is_public'] and exp['share_token']:
