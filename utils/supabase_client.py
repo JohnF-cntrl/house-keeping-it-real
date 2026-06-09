@@ -1,6 +1,23 @@
 import streamlit as st
 from supabase import create_client, Client
 
+def restore_session():
+    """Restore session from session state if available."""
+    if "session" in st.session_state and st.session_state["session"]:
+        try:
+            supabase = get_supabase()
+            session = st.session_state["session"]
+            supabase.auth.set_session(
+                session.access_token,
+                session.refresh_token
+            )
+            # Refresh user
+            user = supabase.auth.get_user()
+            if user:
+                st.session_state["user"] = user.user
+        except Exception:
+            st.session_state.pop("user", None)
+            st.session_state.pop("session", None)
 
 @st.cache_resource
 def get_supabase() -> Client:

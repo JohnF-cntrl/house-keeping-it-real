@@ -1,5 +1,7 @@
 import streamlit as st
 from utils.supabase_client import login, signup, logout, is_logged_in, get_current_user
+from utils.supabase_client import restore_session
+restore_session()
 
 st.set_page_config(
     page_title="Login — house-keeping-it-real",
@@ -51,8 +53,10 @@ else:
         with st.form("signup_form"):
             new_email = st.text_input("Email")
             new_password = st.text_input("Password", type="password")
-            confirm_password = st.text_input("Confirm password", type="password")
-            submit_signup = st.form_submit_button("Create Account", type="primary")
+            confirm_password = st.text_input(
+                "Confirm password", type="password")
+            submit_signup = st.form_submit_button(
+                "Create Account", type="primary")
 
         if submit_signup:
             if not new_email or not new_password:

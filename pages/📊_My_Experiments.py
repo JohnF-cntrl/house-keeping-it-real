@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import json
 from utils.supabase_client import is_logged_in, get_current_user, get_my_experiments, delete_experiment
-
+from utils.supabase_client import restore_session
+restore_session()
 st.set_page_config(
     page_title="My Experiments — house-keeping-it-real",
     page_icon="📊",

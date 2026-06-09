@@ -7,6 +7,8 @@ from modules.qpcr import run_pipeline
 from modules.lmm import run_lmm, summarize_lmm
 from modules.plots import plot_fold_changes, plot_litter_variance
 from utils.supabase_client import is_logged_in, save_experiment
+from utils.supabase_client import restore_session
+restore_session()
 
 # ── PAGE CONFIG ──
 st.set_page_config(
