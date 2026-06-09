@@ -48,7 +48,6 @@ else:
 
     with tab2:
         st.markdown("### Create an account")
-        st.markdown("Free — no credit card required.")
         with st.form("signup_form"):
             new_email = st.text_input("Email")
             new_password = st.text_input("Password", type="password")
