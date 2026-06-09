@@ -102,14 +102,14 @@ if share_token:
 
 # ── PAGE CONFIG ──
 st.set_page_config(
-    page_title="house-keeping-it-real",
-    page_icon="🧬",
+    page_title="Analysis — house-keeping-it-real",
+    page_icon="🔬",
     layout="wide"
 )
 
 # ── HEADER ──
-st.title("🧬 house-keeping-it-real")
-st.markdown("*A qRT-PCR analysis tool built for any lab, any experiment.*")
+st.title("🔬 Analysis")
+st.markdown("*Enter your Ct values below to run the analysis.*")
 st.divider()
 
 # ── SIDEBAR ──
