@@ -5,7 +5,7 @@ restore_session()
 
 st.set_page_config(
     page_title="house-keeping-it-real",
-    page_icon="🧬",
+    page_icon="🏠",
     layout="wide"
 )
 
@@ -14,27 +14,20 @@ col1, col2 = st.columns([1.2, 1], gap="large")
 
 with col1:
     st.markdown("## 🧬 house-keeping-it-real")
-    st.markdown(
-        "### *A qRT-PCR analysis tool built for any lab, any experiment.*")
+    st.markdown("### *A qRT-PCR analysis tool built for the St.A.B Lab, and beyond🚀!*")
     st.markdown("")
-    st.markdown("""
-    Automate your entire qRT-PCR pipeline — from raw Ct values to 
-    publication-ready figures — without writing a single line of code.
-    """)
     st.markdown("")
 
     if is_logged_in():
         user = get_current_user()
         st.success(f"✅ Logged in as **{user.email}**")
-        st.page_link("pages/Analysis.py", label="Go to Analysis", icon="🔬")
+        st.page_link("pages/📈Analysis.py", label="Go to Analysis", icon="🔬")
     else:
         col_a, col_b = st.columns(2)
         with col_a:
-            st.page_link("pages/🔐_Login.py",
-                         label="Log In / Sign Up", icon="🔐")
+            st.page_link("pages/🔐_Login.py", label="Log In / Sign Up", icon="🔐")
         with col_b:
-            st.page_link("pages/Analysis.py",
-                         label="Try without account", icon="🧬")
+            st.page_link("pages/📈Analysis.py", label="Try without account", icon="🧬")
 
 with col2:
     st.markdown("")
@@ -125,7 +118,7 @@ st.divider()
 # ── FOOTER ──
 st.markdown("""
 <div style='text-align: center; color: #999999; font-size: 13px; padding: 10px 0;'>
-house-keeping-it-real | Developed by John Wadie | Dr. Stevenson's Lab | ASSURE 2025<br>
+house-keeping-it-real | Developed by John Wadie | St.A.B Lab | ASSURE 2026<br>
 <a href='https://github.com/JohnF-cntrl/house-keeping-it-real' target='_blank'>github.com/JohnF-cntrl/house-keeping-it-real</a>
 </div>
 """, unsafe_allow_html=True)

@@ -103,12 +103,12 @@ if share_token:
 # ── PAGE CONFIG ──
 st.set_page_config(
     page_title="Analysis — house-keeping-it-real",
-    page_icon="🔬",
+    page_icon="📈",
     layout="wide"
 )
 
 # ── HEADER ──
-st.title("🔬 Analysis")
+st.title("📈 Analysis")
 st.markdown("*Enter your Ct values below to run the analysis.*")
 st.divider()
 

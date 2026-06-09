@@ -17,7 +17,7 @@ if is_logged_in():
     if st.button("Log out", type="secondary"):
         logout()
         st.rerun()
-    st.page_link("Analysis.py", label="Go to Analysis", icon="🔬")
+    st.page_link("pages/📈Analysis.py", label="Go to Analysis", icon="🔬")
 
 else:
     col1, col2 = st.columns([1, 1], gap="large")
@@ -34,8 +34,7 @@ else:
             with st.form("login_form"):
                 email = st.text_input("Email")
                 password = st.text_input("Password", type="password")
-                submit = st.form_submit_button(
-                    "Log In", type="primary", use_container_width=True)
+                submit = st.form_submit_button("Log In", type="primary", use_container_width=True)
 
             if submit:
                 if not email or not password:
@@ -55,10 +54,8 @@ else:
             with st.form("signup_form"):
                 new_email = st.text_input("Email")
                 new_password = st.text_input("Password", type="password")
-                confirm_password = st.text_input(
-                    "Confirm password", type="password")
-                submit_signup = st.form_submit_button(
-                    "Create Account", type="primary", use_container_width=True)
+                confirm_password = st.text_input("Confirm password", type="password")
+                submit_signup = st.form_submit_button("Create Account", type="primary", use_container_width=True)
 
             if submit_signup:
                 if not new_email or not new_password:
