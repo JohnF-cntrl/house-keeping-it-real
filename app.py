@@ -2,7 +2,12 @@ import streamlit as st
 from utils.supabase_client import restore_session, is_logged_in, get_current_user
 
 restore_session()
+# ── HANDLE SHARE LINKS ──
+query_params = st.query_params
+share_token = query_params.get("share", None)
 
+if share_token:
+    st.switch_page("pages/📈Analysis.py")
 st.set_page_config(
     page_title="house-keeping-it-real",
     page_icon="🏠",
