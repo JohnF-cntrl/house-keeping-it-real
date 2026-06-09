@@ -1,3 +1,5 @@
+import json
+from utils.supabase_client import is_logged_in, save_experiment
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -142,8 +144,59 @@ def run_analysis(df, gene_cols, housekeeping_col, treatment_col, control_group, 
                 render_summary_table(
                     results, treatment_col, gene, gene_display)
 
-    st.divider()
-    st.success("✅ Analysis complete! Check the outputs/ folder for saved figures.")
+
+st.divider()
+st.success("✅ Analysis complete! Check the outputs/ folder for saved figures.")
+
+# ── SAVE EXPERIMENT ──
+
+if is_logged_in():
+    st.subheader("💾 Save This Experiment")
+    with st.form("save_form"):
+        exp_name = st.text_input(
+            "Experiment name", placeholder="e.g. BPA CD22 June 2025")
+        is_public = st.checkbox("Make this experiment publicly shareable")
+        save_btn = st.form_submit_button("Save Experiment", type="primary")
+
+    if save_btn:
+        if not exp_name:
+            st.error("Please enter a name for this experiment.")
+        else:
+            try:
+                summary_data = []
+                for gene in gene_cols:
+                    fold_col = f'fold_change_{gene}'
+                    gene_summary = results.groupby(treatment_col)[fold_col].agg(
+                        ['mean', 'sem', 'count']
+                    ).reset_index()
+                    gene_summary.columns = [
+                        'Treatment', 'Mean Fold Change', 'SEM', 'N']
+                    gene_summary['Gene'] = gene.replace('_ct', '').upper()
+                    summary_data.append(gene_summary)
+                all_results = pd.concat(summary_data).round(4)
+                results_json = all_results.to_json(orient='records')
+
+                success, exp_id, share_token = save_experiment(
+                    name=exp_name,
+                    experiment_type=experiment_type,
+                    treatment_groups=list(df[treatment_col].unique()),
+                    control_group=control_group,
+                    genes=gene_cols,
+                    housekeeping_gene=housekeeping_col,
+                    results_json=results_json,
+                    is_public=is_public
+                )
+                if success:
+                    st.success(f"✅ Experiment saved!")
+                    if is_public and share_token:
+                        share_url = f"https://house-keeping-it-real.streamlit.app/?share={share_token}"
+                        st.markdown(f"**Share link:** {share_url}")
+                else:
+                    st.error(f"Could not save: {exp_id}")
+            except Exception as e:
+                st.error(f"Error saving: {str(e)}")
+else:
+    st.info("💡 [Log in](./🔐_Login) to save and share your experiments.")
 
 
 # ════════════════════════════════════════
