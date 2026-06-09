@@ -38,18 +38,55 @@ if share_token:
 
         st.divider()
 
-        results_data = json.loads(exp['results_json'])
-        results_df = pd.DataFrame(results_data)
+        gene_cols_shared = exp['genes'].split(',')
+        housekeeping_col_shared = exp['housekeeping_gene']
+        treatment_col_shared = 'treatment'
+        control_group_shared = exp['control_group']
 
-        genes = results_df['Gene'].unique()
-        for gene in genes:
-            st.subheader(f"📊 {gene}")
-            gene_df = results_df[results_df['Gene'] == gene][[
-                'Treatment', 'Mean Fold Change', 'SEM', 'N']]
-            st.dataframe(gene_df, use_container_width=False, hide_index=True)
-            st.divider()
+        if exp.get('raw_data_json'):
+            raw_df = pd.DataFrame(json.loads(exp['raw_data_json']))
+            for col in gene_cols_shared + [housekeeping_col_shared]:
+                if col in raw_df.columns:
+                    raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce')
 
-        csv = results_df.to_csv(index=False).encode('utf-8')
+            shared_results = run_pipeline(
+                raw_df, gene_cols_shared, housekeeping_col_shared,
+                treatment_col_shared, control_group_shared
+            )
+
+            for gene in gene_cols_shared:
+                gene_display = gene.replace('_ct', '').upper()
+                st.subheader(f"📊 {gene_display}")
+                plot_fig = plot_fold_changes(
+                    shared_results, gene, treatment_col_shared)
+                st.plotly_chart(
+                    plot_fig, use_container_width=False, key=f"share_plot_{gene}")
+
+                fold_col = f'fold_change_{gene}'
+                summary_table = shared_results.groupby(treatment_col_shared)[fold_col].agg(
+                    ['mean', 'sem', 'count']
+                ).reset_index()
+                summary_table.columns = ['Treatment',
+                                         'Mean Fold Change', 'SEM', 'N']
+                summary_table = summary_table.round(4)
+                summary_table['SEM'] = summary_table['SEM'].fillna('N/A')
+                st.dataframe(
+                    summary_table, use_container_width=False, hide_index=True)
+                st.divider()
+        else:
+            results_data = json.loads(exp['results_json'])
+            results_df = pd.DataFrame(results_data)
+            genes = results_df['Gene'].unique()
+            for gene in genes:
+                st.subheader(f"📊 {gene}")
+                gene_df = results_df[results_df['Gene'] == gene][[
+                    'Treatment', 'Mean Fold Change', 'SEM', 'N']]
+                st.dataframe(gene_df, use_container_width=False,
+                             hide_index=True)
+                st.divider()
+
+        csv_data = pd.DataFrame(json.loads(exp['results_json']))
+        csv = csv_data.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="⬇️ Download results as CSV",
             data=csv,
@@ -254,6 +291,7 @@ def show_save_form(results, gene_cols, treatment_col, control_group, housekeepin
                     all_results = pd.concat(summary_data).round(4)
                     results_json = all_results.fillna(
                         'N/A').to_json(orient='records')
+                    raw_data_json = df.to_json(orient='records')
 
                     with st.spinner("Saving..."):
                         success, exp_id, share_token = save_experiment(
@@ -265,6 +303,7 @@ def show_save_form(results, gene_cols, treatment_col, control_group, housekeepin
                             genes=gene_cols,
                             housekeeping_gene=housekeeping_col,
                             results_json=results_json,
+                            raw_data_json=raw_data_json,
                             is_public=is_public
                         )
 
