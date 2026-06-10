@@ -1,9 +1,9 @@
 # 🧬 house-keeping-it-real
 
-A web-based qRT-PCR data analysis tool built for Dr. Stevenson's lab 
-at [University Name]. Automates the full analysis pipeline from raw 
+A web-based qRT-PCR data analysis tool built for the St.A.B lab 
+at Liberty University. Automates the full analysis pipeline from raw 
 Ct values to publication-ready figures, with proper statistical 
-handling of the litter effect in developmental mouse studies.
+handling of the litter effect.
 
 ## What it does
 - Normalizes raw Ct values against housekeeping genes
