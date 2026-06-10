@@ -18,8 +18,5 @@ handling of the litter effect.
 - Streamlit
 - pandas, scipy, statsmodels, matplotlib, seaborn
 
-## Usage
-coming soon
-
 ## About
 Built as part of the ASSURE Summer Research Program, Summer 2026.
